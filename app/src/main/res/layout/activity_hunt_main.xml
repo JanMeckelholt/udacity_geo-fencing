@@ -65,7 +65,7 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:contentDescription="@string/android_map_description"
-            android:src="@{context.getDrawable(viewmodel.geofenceImageResourceId)}"
+            app:hintImage="@{viewmodel.geofenceIndex}"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
