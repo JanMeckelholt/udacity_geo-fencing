@@ -16,31 +16,20 @@
 
 package com.example.android.treasureHunt
 
-import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.Manifest
 import android.annotation.TargetApi
-import android.content.IntentSender
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.SavedStateViewModelFactory
 import androidx.lifecycle.ViewModelProvider
 import com.example.android.treasureHunt.databinding.ActivityHuntMainBinding
-import com.google.android.gms.common.api.ResolvableApiException
-import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
-import com.google.android.gms.location.GeofencingRequest
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.LocationSettingsRequest
 import com.google.android.material.snackbar.Snackbar
+import timber.log.Timber
 
 /**
  * The Treasure Hunt app is a single-player game based on geofences.
@@ -60,7 +49,6 @@ class HuntMainActivity : BaseActivity() {
     private lateinit var geofencingClient: GeofencingClient
     private lateinit var viewModel: GeofenceViewModel
 
-    // TODO: Step 2 add in variable to check if device is running Q or later
 
     // A PendingIntent for the Broadcast Receiver that handles geofence transitions.
     // TODO: Step 8 add in a pending intent
@@ -68,14 +56,18 @@ class HuntMainActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = DataBindingUtil.setContentView(this, R.layout.activity_hunt_main)
-        viewModel = ViewModelProvider(this, SavedStateViewModelFactory(this.application,
-            this)).get(GeofenceViewModel::class.java)
+        viewModel = ViewModelProvider(
+            this, SavedStateViewModelFactory(
+                this.application,
+                this
+            )
+        ).get(GeofenceViewModel::class.java)
         binding.viewmodel = viewModel
         binding.lifecycleOwner = this
         // TODO: Step 9 instantiate the geofencing client
 
         // Create channel for notifications
-        createChannel(this )
+        createChannel(this)
     }
 
     override fun onStart() {
@@ -102,8 +94,8 @@ class HuntMainActivity : BaseActivity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         val extras = intent?.extras
-        if(extras != null){
-            if(extras.containsKey(GeofencingConstants.EXTRA_GEOFENCE_INDEX)){
+        if (extras != null) {
+            if (extras.containsKey(GeofencingConstants.EXTRA_GEOFENCE_INDEX)) {
                 viewModel.updateHint(extras.getInt(GeofencingConstants.EXTRA_GEOFENCE_INDEX))
                 checkPermissionsAndStartGeofencing()
             }
@@ -119,8 +111,27 @@ class HuntMainActivity : BaseActivity() {
         permissions: Array<String>,
         grantResults: IntArray
     ) {
-        // TODO: Step 5 add code to handle the result of the user's permission
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (
+            grantResults.isEmpty() ||
+            grantResults[LOCATION_PERMISSION_INDEX] == PackageManager.PERMISSION_DENIED ||
+            (requestCode == REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE && grantResults[BACKGROUND_LOCATION_PERMISSION_INDEX] == PackageManager.PERMISSION_DENIED)
+        ) {
+            Snackbar.make(binding.activityMapsMain, R.string.permission_denied_explanation, Snackbar.LENGTH_INDEFINITE)
+                .setAction(R.string.settings) {
+                    startActivity(Intent().apply {
+                        action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                        data = Uri.fromParts("package", BuildConfig.APPLICATION_ID, null)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                }
+                .show()
+        } else {
+            checkDeviceLocationSettingsAndStartGeofence()
+        }
+
     }
+
 
     /**
      * This will also destroy any saved state in the associated ViewModel, so we remove the
@@ -148,7 +159,7 @@ class HuntMainActivity : BaseActivity() {
      *  Uses the Location Client to check the current state of location settings, and gives the user
      *  the opportunity to turn on location services within our app.
      */
-    private fun checkDeviceLocationSettingsAndStartGeofence(resolve:Boolean = true) {
+    private fun checkDeviceLocationSettingsAndStartGeofence(resolve: Boolean = true) {
         // TODO: Step 6 add code to check that the device's location is on
     }
 
@@ -158,17 +169,36 @@ class HuntMainActivity : BaseActivity() {
      */
     @TargetApi(29)
     private fun foregroundAndBackgroundLocationPermissionApproved(): Boolean {
-        // TODO: Step 3 replace this with code to check that the foreground and background
-        //  permissions were approved
-        return false
+        val foregroudLocationApproved = (PackageManager.PERMISSION_GRANTED == ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION))
+        val backgroudLocationApproved = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            (PackageManager.PERMISSION_GRANTED == ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+        } else {
+            true
+        }
+        return foregroudLocationApproved && backgroudLocationApproved
     }
 
     /*
      *  Requests ACCESS_FINE_LOCATION and (on Android 10+ (Q) ACCESS_BACKGROUND_LOCATION.
      */
-    @TargetApi(29 )
+    @TargetApi(29)
     private fun requestForegroundAndBackgroundLocationPermissions() {
-        // TODO: Step 4 add code to request foreground and background permissions
+        if (foregroundAndBackgroundLocationPermissionApproved()) return
+        var permissionArray = arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        val resultCode = when {
+            (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) -> {
+                permissionArray += android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE
+            }
+
+            else -> REQUEST_FOREGROUND_ONLY_PERMISSIONS_REQUEST_CODE
+        }
+        Timber.i("Request permissions")
+        ActivityCompat.requestPermissions(
+            this@HuntMainActivity,
+            permissionArray,
+            resultCode
+        )
     }
 
     /*
@@ -188,6 +218,7 @@ class HuntMainActivity : BaseActivity() {
     private fun removeGeofences() {
         // TODO: Step 12 add in code to remove the geofences
     }
+
     companion object {
         internal const val ACTION_GEOFENCE_EVENT =
             "HuntMainActivity.treasureHunt.action.ACTION_GEOFENCE_EVENT"
