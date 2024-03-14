@@ -19,15 +19,22 @@ package com.example.android.treasureHunt
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.annotation.TargetApi
+import android.content.IntentSender
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
+import androidx.core.location.LocationRequestCompat
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.SavedStateViewModelFactory
 import androidx.lifecycle.ViewModelProvider
 import com.example.android.treasureHunt.databinding.ActivityHuntMainBinding
+import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.GeofencingClient
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.Priority
 import com.google.android.material.snackbar.Snackbar
 import timber.log.Timber
 
@@ -82,8 +89,9 @@ class HuntMainActivity : BaseActivity() {
  */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        // TODO: Step 7 add code to check that the user turned on their device location and ask
-        //  again if they did not
+        if (requestCode == REQUEST_TURN_DEVICE_LOCATION_ON) {
+            checkDeviceLocationSettingsAndStartGeofence(false)
+        }
     }
 
     /*
@@ -160,7 +168,33 @@ class HuntMainActivity : BaseActivity() {
      *  the opportunity to turn on location services within our app.
      */
     private fun checkDeviceLocationSettingsAndStartGeofence(resolve: Boolean = true) {
-        // TODO: Step 6 add code to check that the device's location is on
+        val locationRequest = LocationRequest.create().apply {
+            priority = Priority.PRIORITY_LOW_POWER
+        }
+        val builder = LocationSettingsRequest.Builder().addLocationRequest(locationRequest)
+        val settingsClient = LocationServices.getSettingsClient(this)
+        val locationsSettingsResponseTask = settingsClient.checkLocationSettings(builder.build())
+        locationsSettingsResponseTask.addOnFailureListener { e ->
+            if (e is ResolvableApiException && resolve){
+                try {
+                    e.startResolutionForResult(this@HuntMainActivity, REQUEST_TURN_DEVICE_LOCATION_ON)
+                } catch ( sendEx: IntentSender.SendIntentException) {
+                    Timber.e("Error getting location settings resolution: ${sendEx.message}")
+                }
+            } else {
+                Snackbar.make(
+                    binding.activityMapsMain,
+                    R.string.location_required_error, Snackbar.LENGTH_INDEFINITE
+                ).setAction(android.R.string.ok){
+                    checkDeviceLocationSettingsAndStartGeofence()
+                }.show()
+            }
+        }
+        locationsSettingsResponseTask.addOnCompleteListener {
+            if (it.isSuccessful){
+                addGeofenceForClue()
+            }
+        }
     }
 
     /*
