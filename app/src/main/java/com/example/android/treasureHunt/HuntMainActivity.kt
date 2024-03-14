@@ -19,18 +19,21 @@ package com.example.android.treasureHunt
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.annotation.TargetApi
+import android.app.PendingIntent
 import android.content.IntentSender
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
-import androidx.core.location.LocationRequestCompat
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.SavedStateViewModelFactory
 import androidx.lifecycle.ViewModelProvider
 import com.example.android.treasureHunt.databinding.ActivityHuntMainBinding
 import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
+import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.LocationSettingsRequest
@@ -57,8 +60,11 @@ class HuntMainActivity : BaseActivity() {
     private lateinit var viewModel: GeofenceViewModel
 
 
-    // A PendingIntent for the Broadcast Receiver that handles geofence transitions.
-    // TODO: Step 8 add in a pending intent
+    private val geofencePendingIntent: PendingIntent by lazy {
+        val intent = Intent(this, GeofenceBroadcastReceiver::class.java)
+        intent.action = ACTION_GEOFENCE_EVENT
+        PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +77,7 @@ class HuntMainActivity : BaseActivity() {
         ).get(GeofenceViewModel::class.java)
         binding.viewmodel = viewModel
         binding.lifecycleOwner = this
-        // TODO: Step 9 instantiate the geofencing client
+        geofencingClient = LocationServices.getGeofencingClient(this)
 
         // Create channel for notifications
         createChannel(this)
@@ -175,23 +181,23 @@ class HuntMainActivity : BaseActivity() {
         val settingsClient = LocationServices.getSettingsClient(this)
         val locationsSettingsResponseTask = settingsClient.checkLocationSettings(builder.build())
         locationsSettingsResponseTask.addOnFailureListener { e ->
-            if (e is ResolvableApiException && resolve){
+            if (e is ResolvableApiException && resolve) {
                 try {
                     e.startResolutionForResult(this@HuntMainActivity, REQUEST_TURN_DEVICE_LOCATION_ON)
-                } catch ( sendEx: IntentSender.SendIntentException) {
+                } catch (sendEx: IntentSender.SendIntentException) {
                     Timber.e("Error getting location settings resolution: ${sendEx.message}")
                 }
             } else {
                 Snackbar.make(
                     binding.activityMapsMain,
                     R.string.location_required_error, Snackbar.LENGTH_INDEFINITE
-                ).setAction(android.R.string.ok){
+                ).setAction(android.R.string.ok) {
                     checkDeviceLocationSettingsAndStartGeofence()
                 }.show()
             }
         }
         locationsSettingsResponseTask.addOnCompleteListener {
-            if (it.isSuccessful){
+            if (it.isSuccessful) {
                 addGeofenceForClue()
             }
         }
@@ -242,7 +248,45 @@ class HuntMainActivity : BaseActivity() {
      * is now "active."
      */
     private fun addGeofenceForClue() {
-        // TODO: Step 10 add in code to add the geofence
+        if (viewModel.geofenceIsActive()) return
+        val currentGeofenceIndex = viewModel.nextGeofenceIndex()
+        if (currentGeofenceIndex >= GeofencingConstants.NUM_LANDMARKS) {
+            removeGeofences()
+            viewModel.geofenceActivated()
+            return
+        }
+        val currentGeofenceData = GeofencingConstants.LANDMARK_DATA[currentGeofenceIndex]
+        val geofence = Geofence.Builder()
+            .setRequestId(currentGeofenceData.id)
+            .setCircularRegion(currentGeofenceData.latLong.latitude, currentGeofenceData.latLong.longitude, GeofencingConstants.GEOFENCE_RADIUS_IN_METERS)
+            .setExpirationDuration(GeofencingConstants.GEOFENCE_EXPIRATION_IN_MILLISECONDS)
+            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
+            .build()
+        val geofencingRequest = GeofencingRequest.Builder()
+            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+            .addGeofence(geofence)
+            .build()
+        geofencingClient.removeGeofences(geofencePendingIntent).run {
+            addOnCompleteListener {
+                try {
+                    geofencingClient.addGeofences(geofencingRequest, geofencePendingIntent).run {
+                        addOnSuccessListener {
+                            Toast.makeText(this@HuntMainActivity, R.string.geofences_added, Toast.LENGTH_SHORT).show()
+                            Timber.i("Add Geofence ${geofence.requestId}")
+                            viewModel.geofenceActivated()
+                        }
+                        addOnFailureListener {
+                            Toast.makeText(this@HuntMainActivity, R.string.geofences_not_added, Toast.LENGTH_SHORT).show()
+                            if (it.message != null) {
+                                Timber.w(it.message)
+                            }
+                        }
+                    }
+                } catch (e: SecurityException) {
+                    Timber.e("user permissions not sufficient: ${e.message}")
+                }
+            }
+        }
     }
 
     /**
@@ -262,6 +306,5 @@ class HuntMainActivity : BaseActivity() {
 private const val REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE = 33
 private const val REQUEST_FOREGROUND_ONLY_PERMISSIONS_REQUEST_CODE = 34
 private const val REQUEST_TURN_DEVICE_LOCATION_ON = 29
-private const val TAG = "HuntMainActivity"
 private const val LOCATION_PERMISSION_INDEX = 0
 private const val BACKGROUND_LOCATION_PERMISSION_INDEX = 1
