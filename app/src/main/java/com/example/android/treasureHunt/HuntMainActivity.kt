@@ -63,7 +63,7 @@ class HuntMainActivity : BaseActivity() {
     private val geofencePendingIntent: PendingIntent by lazy {
         val intent = Intent(this, GeofenceBroadcastReceiver::class.java)
         intent.action = ACTION_GEOFENCE_EVENT
-        PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,6 +111,7 @@ class HuntMainActivity : BaseActivity() {
         if (extras != null) {
             if (extras.containsKey(GeofencingConstants.EXTRA_GEOFENCE_INDEX)) {
                 viewModel.updateHint(extras.getInt(GeofencingConstants.EXTRA_GEOFENCE_INDEX))
+                checkPermissionsAndStartGeofencing()
                 checkPermissionsAndStartGeofencing()
             }
         }

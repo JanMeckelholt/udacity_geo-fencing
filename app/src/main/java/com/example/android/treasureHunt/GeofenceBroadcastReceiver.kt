@@ -20,11 +20,11 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.android.treasureHunt.HuntMainActivity.Companion.ACTION_GEOFENCE_EVENT
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import timber.log.Timber
 
 /*
  * Triggered by the Geofence.  Since we only have one active Geofence at once, we pull the request
@@ -37,8 +37,37 @@ import com.google.android.gms.location.GeofencingEvent
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        // TODO: Step 11 implement the onReceive method
+        Timber.i("receiving... $intent")
+        if (intent.action == ACTION_GEOFENCE_EVENT) {
+            val geofencingEvent = GeofencingEvent.fromIntent(intent)
+            if (geofencingEvent != null) {
+                if (geofencingEvent.hasError()) {
+                    Timber.e(errorMessage(context, geofencingEvent.errorCode))
+                    return
+                }
+                if (geofencingEvent.triggeringGeofences == null) {
+                    Timber.e(errorMessage(context, -1))
+                    return
+                }
+                if (geofencingEvent.geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
+                    Timber.i(context.getString(R.string.geofence_entered))
+                    val fenceId = when {
+                        geofencingEvent.triggeringGeofences!!.isNotEmpty() -> geofencingEvent.triggeringGeofences!![0].requestId
+                        else-> {
+                            Timber.e("No Geofence Trigger Found!")
+                            return
+                        }
+                    }
+                    val foundIndex = GeofencingConstants.LANDMARK_DATA.indexOfFirst { it.id == fenceId }
+                    if (foundIndex == -1) {
+                        Timber.e("Unknown Geofence")
+                        return
+                    }
+                    Timber.i("sending notification")
+                    val notificationManager = ContextCompat.getSystemService(context, NotificationManager::class.java) as NotificationManager
+                    notificationManager.sendGeofenceEnteredNotification(context, foundIndex)
+                }
+            }
+        }
     }
 }
-
-private const val TAG = "GeofenceReceiver"
